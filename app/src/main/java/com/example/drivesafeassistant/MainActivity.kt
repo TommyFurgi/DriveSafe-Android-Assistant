@@ -15,16 +15,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.drivesafeassistant.screens.ui.MainScreen
-import com.example.drivesafeassistant.services.DriveModeSpeechService
 import com.example.drivesafeassistant.services.NotificationReaderService
 import com.example.drivesafeassistant.ui.theme.DriveSafeAssistantTheme
-import com.example.drivesafeassistant.utils.DriveModeManager
-import com.example.drivesafeassistant.utils.SpeechManager
+import com.example.drivesafeassistant.utils.Speech
 
 class MainActivity : ComponentActivity() {
 
@@ -34,74 +34,55 @@ class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (!isGranted) {
-            Toast.makeText(this, "Notification permission is required for background features.", Toast.LENGTH_LONG).show()
-        }
+    ) { granted ->
+        if (!granted) toast("Notification permission is required for background features.")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        isDrivingModeActive = DriveModeManager.isActive(this)
+        isDrivingModeActive = Speech.isDriveModeOn(this)
         hasNotificationAccess = isNotificationListenerEnabled()
-
-        SpeechManager.ensureInitialized(this) {
+        Speech.ensure(this) {
             isTtsReady = true
-            if (!SpeechManager.isEnglishAvailable) {
-                Toast.makeText(
-                    this,
-                    "Install an English voice in system Text-to-speech settings.",
-                    Toast.LENGTH_LONG
-                ).show()
+            if (!Speech.isEnglishAvailable) {
+                toast("Install an English voice in system Text-to-speech settings.")
             }
         }
-        isTtsReady = SpeechManager.isReady
-
-        checkNotificationPermission()
-
-        // If Drive Mode was left on, ensure the foreground speech service is running
-        if (isDrivingModeActive) {
-            DriveModeSpeechService.start(this)
+        isTtsReady = Speech.isReady
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        if (isDrivingModeActive) NotificationReaderService.start(this)
 
         setContent {
             DriveSafeAssistantTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                Scaffold(Modifier.fillMaxSize()) { innerPadding ->
                     MainScreen(
                         isTtsReady = isTtsReady,
                         isDrivingModeActive = isDrivingModeActive,
                         hasNotificationAccess = hasNotificationAccess,
                         onTestSpeechClick = {
-                            SpeechManager.ensureInitialized(this)
-                            SpeechManager.speak("Drive Safe Assistant is active and ready.")
+                            Speech.ensure(this)
+                            Speech.speak("Drive Safe Assistant is active and ready.")
                         },
                         onToggleDriveMode = { active ->
                             if (active && !isNotificationListenerEnabled()) {
-                                Toast.makeText(
-                                    this,
-                                    "Grant notification access so Drive Mode can read alerts.",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                                toast("Grant notification access so Drive Mode can read alerts.")
                                 openNotificationListenerSettings()
                             } else {
                                 isDrivingModeActive = active
-                                DriveModeManager.setActive(this, active)
-                                if (active) {
-                                    DriveModeSpeechService.start(this)
-                                } else {
-                                    DriveModeSpeechService.stop(this)
-                                }
-                                val statusText = if (active) "Drive mode enabled." else "Drive mode disabled."
-                                SpeechManager.ensureInitialized(this)
-                                SpeechManager.speak(statusText)
-                                Toast.makeText(this, statusText, Toast.LENGTH_SHORT).show()
+                                Speech.setDriveMode(this, active)
+                                if (active) NotificationReaderService.start(this) else NotificationReaderService.stop(this)
+                                val status = if (active) "Drive mode enabled." else "Drive mode disabled."
+                                Speech.ensure(this)
+                                Speech.speak(status)
+                                Toast.makeText(this, status, Toast.LENGTH_SHORT).show()
                             }
                         },
-                        onRequestNotificationAccess = {
-                            openNotificationListenerSettings()
-                        },
+                        onRequestNotificationAccess = { openNotificationListenerSettings() },
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -112,34 +93,24 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         hasNotificationAccess = isNotificationListenerEnabled()
-        isDrivingModeActive = DriveModeManager.isActive(this)
-        isTtsReady = SpeechManager.isReady
+        isDrivingModeActive = Speech.isDriveModeOn(this)
+        isTtsReady = Speech.isReady
     }
 
-    private fun checkNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-    }
-
-    private fun isNotificationListenerEnabled(): Boolean {
-        val enabledPackages = NotificationManagerCompat.getEnabledListenerPackages(this)
-        return enabledPackages.contains(packageName)
-    }
+    private fun isNotificationListenerEnabled() =
+        NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
 
     private fun openNotificationListenerSettings() {
         val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).apply {
-                putExtra(
-                    Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
-                    ComponentName(this@MainActivity, NotificationReaderService::class.java).flattenToString()
-                )
-            }
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(
+                Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                ComponentName(this, NotificationReaderService::class.java).flattenToString()
+            )
         } else {
             Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
         }
         startActivity(intent)
     }
+
+    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 }
