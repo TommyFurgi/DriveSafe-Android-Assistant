@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.drivesafeassistant.screens.ui.MainScreen
+import com.example.drivesafeassistant.services.DriveModeSpeechService
 import com.example.drivesafeassistant.services.NotificationReaderService
 import com.example.drivesafeassistant.ui.theme.DriveSafeAssistantTheme
 import com.example.drivesafeassistant.utils.Speech
@@ -43,6 +44,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         isDrivingModeActive = Speech.isDriveModeOn(this)
         hasNotificationAccess = isNotificationListenerEnabled()
+
         Speech.ensure(this) {
             isTtsReady = true
             if (!Speech.isEnglishAvailable) {
@@ -50,12 +52,15 @@ class MainActivity : ComponentActivity() {
             }
         }
         isTtsReady = Speech.isReady
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
         ) {
             requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        if (isDrivingModeActive) NotificationReaderService.start(this)
+
+        if (isDrivingModeActive) DriveModeSpeechService.start(this)
 
         setContent {
             DriveSafeAssistantTheme {
@@ -75,7 +80,11 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 isDrivingModeActive = active
                                 Speech.setDriveMode(this, active)
-                                if (active) NotificationReaderService.start(this) else NotificationReaderService.stop(this)
+                                if (active) {
+                                    DriveModeSpeechService.start(this)
+                                } else {
+                                    DriveModeSpeechService.stop(this)
+                                }
                                 val status = if (active) "Drive mode enabled." else "Drive mode disabled."
                                 Speech.ensure(this)
                                 Speech.speak(status)
@@ -95,6 +104,7 @@ class MainActivity : ComponentActivity() {
         hasNotificationAccess = isNotificationListenerEnabled()
         isDrivingModeActive = Speech.isDriveModeOn(this)
         isTtsReady = Speech.isReady
+        if (isDrivingModeActive) DriveModeSpeechService.start(this)
     }
 
     private fun isNotificationListenerEnabled() =

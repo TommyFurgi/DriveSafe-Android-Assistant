@@ -66,13 +66,5 @@ fun MainScreen(
                 onCheckedChange = onToggleDriveMode
             )
         }
-
-        if (isDrivingModeActive) {
-            Text(
-                text = "Notifications are read aloud in English, even when this screen is closed. Leave the Drive Mode notification visible.",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 12.dp)
-            )
-        }
     }
 }
