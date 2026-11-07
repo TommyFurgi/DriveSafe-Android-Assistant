@@ -13,6 +13,8 @@ The goal of this project is to create a context-aware native Android application
 > *Here you can track the current development status and latest added features.*
 
 * **[2026-10-14]** – Project initialized, repository setup, and initial `README.md` configuration.
+* **[2026-10-30]** – Android project setup.
+* **[2026-11-07]** – Add an English TTS module that reads incoming notifications aloud, including when another app is open or the screen is locked.
 
 ---
 
@@ -37,7 +39,7 @@ The goal of this project is to create a context-aware native Android application
 ---
 
 ## 🛠️ Technology Stack
-- **Language:** Java
+- **Language:** Kotlin
 - **Platform:** Android SDK
 - **Key APIs:** 
   - `ActivityRecognition API` (Google Play Services)

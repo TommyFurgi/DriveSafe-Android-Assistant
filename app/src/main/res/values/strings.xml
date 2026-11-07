@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">DriveSafe Assistant</string>
+    <string name="drive_mode_channel_name">Drive Mode</string>
+    <string name="drive_mode_channel_description">Keeps English notification reading active while you drive, even if the app screen is closed</string>
+    <string name="drive_mode_notification_title">Drive Mode active</string>
+    <string name="drive_mode_notification_text">Reading new notifications aloud in English</string>
+    <string name="drive_mode_stop">Stop</string>
 </resources>
