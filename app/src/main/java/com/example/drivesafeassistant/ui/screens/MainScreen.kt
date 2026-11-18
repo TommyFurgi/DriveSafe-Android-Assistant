@@ -12,6 +12,7 @@ fun MainScreen(
     isTtsReady: Boolean,
     isDrivingModeActive: Boolean,
     hasNotificationAccess: Boolean,
+    isListenerConnected: Boolean,
     onTestSpeechClick: () -> Unit,
     onToggleDriveMode: (Boolean) -> Unit,
     onRequestNotificationAccess: () -> Unit,
@@ -27,13 +28,13 @@ fun MainScreen(
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.padding(bottom = 8.dp)
         )
-
         Text(
-            text = if (hasNotificationAccess) {
-                "Notification Access: Granted"
-            } else {
-                "Notification Access: Required"
-            },
+            text = if (hasNotificationAccess) "Notification Access: Granted" else "Notification Access: Required",
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        Text(
+            text = if (isListenerConnected) "Listener: Connected" else "Listener: Disconnected",
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.padding(bottom = 24.dp)
         )
@@ -43,7 +44,7 @@ fun MainScreen(
                 onClick = onRequestNotificationAccess,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
             ) {
-                Text(text = "Grant Notification Access")
+                Text("Grant Notification Access")
             }
         }
 
@@ -52,19 +53,16 @@ fun MainScreen(
             enabled = isTtsReady,
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
         ) {
-            Text(text = "Test Speech Output")
+            Text("Test Speech Output")
         }
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text(text = "Drive Mode Active", style = MaterialTheme.typography.titleMedium)
-            Switch(
-                checked = isDrivingModeActive,
-                onCheckedChange = onToggleDriveMode
-            )
+            Text("Drive Mode Active", style = MaterialTheme.typography.titleMedium)
+            Switch(checked = isDrivingModeActive, onCheckedChange = onToggleDriveMode)
         }
     }
 }

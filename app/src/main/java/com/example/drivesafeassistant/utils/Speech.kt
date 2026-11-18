@@ -6,28 +6,21 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import android.util.Log
 import java.util.Locale
 
-/** English TTS shared by the UI and Drive Mode. */
 object Speech : TextToSpeech.OnInitListener {
     private const val PREFS = "drive_safe_prefs"
     private const val KEY_DRIVE_MODE = "drive_mode_active"
     private const val KEY_DRIVE_MODE_SINCE = "drive_mode_since"
-    private const val TAG = "Speech"
 
     private val attrs = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_MEDIA)
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build()
 
-    private val handler = Handler(Looper.getMainLooper())
     private val pending = ArrayDeque<Pair<String, Boolean>>()
-
     private lateinit var appContext: Context
     private lateinit var audio: AudioManager
     private var tts: TextToSpeech? = null
@@ -47,6 +40,7 @@ object Speech : TextToSpeech.OnInitListener {
         prefs(context).getLong(KEY_DRIVE_MODE_SINCE, 0L)
 
     fun setDriveMode(context: Context, active: Boolean) {
+        DriveSafeLog.call("Speech.setDriveMode", "active=$active")
         prefs(context).edit()
             .putBoolean(KEY_DRIVE_MODE, active)
             .putLong(KEY_DRIVE_MODE_SINCE, if (active) System.currentTimeMillis() else 0L)
@@ -55,6 +49,7 @@ object Speech : TextToSpeech.OnInitListener {
     }
 
     fun ensure(context: Context, onReady: (() -> Unit)? = null) {
+        DriveSafeLog.call("Speech.ensure", "ready=$isReady")
         if (onReady != null) {
             if (isReady) onReady() else readyCallback = onReady
         }
@@ -69,6 +64,7 @@ object Speech : TextToSpeech.OnInitListener {
     }
 
     fun speak(text: String, queue: Boolean = false) {
+        DriveSafeLog.call("Speech.speak", "queue=$queue text=\"$text\"")
         if (text.isBlank()) return
         val engine = tts
         if (!isReady || engine == null) {
@@ -80,31 +76,40 @@ object Speech : TextToSpeech.OnInitListener {
     }
 
     fun stop() {
+        DriveSafeLog.call("Speech.stop")
         synchronized(pending) { pending.clear() }
         runCatching { tts?.stop() }
         abandonFocus()
     }
 
     override fun onInit(status: Int) {
+        DriveSafeLog.call("Speech.onInit", "status=$status")
         val engine = tts ?: return
-        if (status != TextToSpeech.SUCCESS) {
-            Log.e(TAG, "TextToSpeech initialization failed")
-            return
-        }
+        if (status != TextToSpeech.SUCCESS) return
+
         engine.setAudioAttributes(attrs)
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) = Unit
+            override fun onStart(utteranceId: String?) {
+                DriveSafeLog.call("Speech.onStart", "id=$utteranceId")
+            }
+
             override fun onDone(utteranceId: String?) {
-                handler.post { abandonFocus() }
+                DriveSafeLog.call("Speech.onDone", "id=$utteranceId")
+                abandonFocus()
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
-                handler.post { abandonFocus() }
+                DriveSafeLog.call("Speech.onError", "id=$utteranceId")
+                abandonFocus()
             }
         })
-        isEnglishAvailable = useEnglish(engine)
+
+        val lang = engine.setLanguage(Locale.US)
+        isEnglishAvailable =
+            lang != TextToSpeech.LANG_MISSING_DATA && lang != TextToSpeech.LANG_NOT_SUPPORTED
         isReady = true
+
         val queued = synchronized(pending) { pending.toList().also { pending.clear() } }
         queued.forEachIndexed { index, (text, queue) ->
             say(engine, text, queue = index > 0 || queue)
@@ -113,25 +118,14 @@ object Speech : TextToSpeech.OnInitListener {
         readyCallback = null
     }
 
-    private fun useEnglish(engine: TextToSpeech): Boolean {
-        val result = engine.setLanguage(Locale.US)
-        if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-            Log.e(TAG, "English TTS data is not installed")
-            return false
-        }
-        return true
-    }
-
     private fun say(engine: TextToSpeech, text: String, queue: Boolean) {
+        DriveSafeLog.call("Speech.say", "queue=$queue text=\"$text\"")
         requestFocus()
         val mode = if (queue) TextToSpeech.QUEUE_ADD else TextToSpeech.QUEUE_FLUSH
         val params = Bundle().apply {
             putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
         }
-        val result = engine.speak(text, mode, params, "drive_safe_${System.nanoTime()}")
-        if (result == TextToSpeech.ERROR) {
-            Log.e(TAG, "TTS speak() returned ERROR for: $text")
-        }
+        engine.speak(text, mode, params, "drive_safe_${System.nanoTime()}")
     }
 
     private fun requestFocus() {

@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -19,12 +21,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.drivesafeassistant.screens.ui.MainScreen
 import com.example.drivesafeassistant.services.DriveModeSpeechService
 import com.example.drivesafeassistant.services.NotificationReaderService
 import com.example.drivesafeassistant.ui.theme.DriveSafeAssistantTheme
+import com.example.drivesafeassistant.utils.DriveSafeLog
 import com.example.drivesafeassistant.utils.Speech
 
 class MainActivity : ComponentActivity() {
@@ -32,6 +34,8 @@ class MainActivity : ComponentActivity() {
     private var isTtsReady by mutableStateOf(false)
     private var isDrivingModeActive by mutableStateOf(false)
     private var hasNotificationAccess by mutableStateOf(false)
+    private var isListenerConnected by mutableStateOf(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -42,8 +46,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        isDrivingModeActive = Speech.isDriveModeOn(this)
-        hasNotificationAccess = isNotificationListenerEnabled()
+        refreshStatus()
+        DriveSafeLog.call(
+            "MainActivity.onCreate",
+            "driveMode=$isDrivingModeActive access=$hasNotificationAccess connected=$isListenerConnected"
+        )
 
         Speech.ensure(this) {
             isTtsReady = true
@@ -60,6 +67,7 @@ class MainActivity : ComponentActivity() {
             requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
+        if (hasNotificationAccess) NotificationReaderService.ensureBound(this)
         if (isDrivingModeActive) DriveModeSpeechService.start(this)
 
         setContent {
@@ -69,18 +77,23 @@ class MainActivity : ComponentActivity() {
                         isTtsReady = isTtsReady,
                         isDrivingModeActive = isDrivingModeActive,
                         hasNotificationAccess = hasNotificationAccess,
+                        isListenerConnected = isListenerConnected,
                         onTestSpeechClick = {
+                            DriveSafeLog.call("MainActivity.onTestSpeechClick")
                             Speech.ensure(this)
                             Speech.speak("Drive Safe Assistant is active and ready.")
                         },
                         onToggleDriveMode = { active ->
-                            if (active && !isNotificationListenerEnabled()) {
+                            DriveSafeLog.call("MainActivity.onToggleDriveMode", "active=$active")
+                            if (active && !NotificationReaderService.hasAccess(this)) {
                                 toast("Grant notification access so Drive Mode can read alerts.")
                                 openNotificationListenerSettings()
                             } else {
                                 isDrivingModeActive = active
                                 Speech.setDriveMode(this, active)
                                 if (active) {
+                                    NotificationReaderService.ensureBound(this)
+                                    scheduleListenerStatusRefresh()
                                     DriveModeSpeechService.start(this)
                                 } else {
                                     DriveModeSpeechService.stop(this)
@@ -101,16 +114,37 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        hasNotificationAccess = isNotificationListenerEnabled()
-        isDrivingModeActive = Speech.isDriveModeOn(this)
-        isTtsReady = Speech.isReady
+        refreshStatus()
+        DriveSafeLog.call(
+            "MainActivity.onResume",
+            "driveMode=$isDrivingModeActive access=$hasNotificationAccess connected=$isListenerConnected"
+        )
+        if (hasNotificationAccess && !isListenerConnected) {
+            NotificationReaderService.ensureBound(this)
+            scheduleListenerStatusRefresh()
+        }
         if (isDrivingModeActive) DriveModeSpeechService.start(this)
     }
 
-    private fun isNotificationListenerEnabled() =
-        NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+    private fun scheduleListenerStatusRefresh() {
+        mainHandler.postDelayed({
+            isListenerConnected = NotificationReaderService.isConnected
+            DriveSafeLog.call(
+                "MainActivity.refreshListenerStatus",
+                "connected=$isListenerConnected"
+            )
+        }, 2000)
+    }
+
+    private fun refreshStatus() {
+        hasNotificationAccess = NotificationReaderService.hasAccess(this)
+        isDrivingModeActive = Speech.isDriveModeOn(this)
+        isListenerConnected = NotificationReaderService.isConnected
+        isTtsReady = Speech.isReady
+    }
 
     private fun openNotificationListenerSettings() {
+        DriveSafeLog.call("MainActivity.openNotificationListenerSettings")
         val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(
                 Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,

@@ -10,28 +10,26 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.drivesafeassistant.MainActivity
 import com.example.drivesafeassistant.R
+import com.example.drivesafeassistant.utils.DriveSafeLog
 import com.example.drivesafeassistant.utils.Speech
 
-/**
- * Keeps a media-playback foreground service alive while Drive Mode is on,
- * so TTS can speak after the app UI is closed or the screen is locked.
- */
 class DriveModeSpeechService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        DriveSafeLog.call("DriveModeSpeech.onCreate")
         createChannel()
         Speech.ensure(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        DriveSafeLog.call("DriveModeSpeech.onStartCommand", "action=${intent?.action ?: "START"}")
         when (intent?.action) {
             ACTION_STOP -> {
                 Speech.setDriveMode(this, false)
@@ -57,18 +55,16 @@ class DriveModeSpeechService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        DriveSafeLog.call("DriveModeSpeech.onTaskRemoved")
         if (Speech.isDriveModeOn(this)) promoteToForeground()
         super.onTaskRemoved(rootIntent)
     }
 
     private fun promoteToForeground() {
+        DriveSafeLog.call("DriveModeSpeech.promoteToForeground")
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            )
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
@@ -80,8 +76,7 @@ class DriveModeSpeechService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val stop = PendingIntent.getService(
-            this, 1,
-            Intent(this, DriveModeSpeechService::class.java).setAction(ACTION_STOP),
+            this, 1, Intent(this, DriveModeSpeechService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
@@ -111,7 +106,6 @@ class DriveModeSpeechService : Service() {
     }
 
     companion object {
-        private const val TAG = "DriveModeSpeech"
         private const val CHANNEL_ID = "drive_mode_speech"
         private const val NOTIFICATION_ID = 1001
         private const val EXTRA_TEXT = "extra_text"
@@ -119,39 +113,32 @@ class DriveModeSpeechService : Service() {
         const val ACTION_SPEAK = "com.example.drivesafeassistant.action.SPEAK"
 
         fun start(context: Context) {
-            try {
-                ContextCompat.startForegroundService(
-                    context,
-                    Intent(context, DriveModeSpeechService::class.java)
-                )
-            } catch (error: Exception) {
-                Log.e(TAG, "Could not start DriveModeSpeechService", error)
+            DriveSafeLog.call("DriveModeSpeech.start")
+            runCatching {
+                ContextCompat.startForegroundService(context, Intent(context, DriveModeSpeechService::class.java))
             }
         }
 
         fun speak(context: Context, text: String) {
+            DriveSafeLog.call("DriveModeSpeech.speak", text)
             if (text.isBlank()) return
-            try {
+            runCatching {
                 ContextCompat.startForegroundService(
                     context,
                     Intent(context, DriveModeSpeechService::class.java)
                         .setAction(ACTION_SPEAK)
                         .putExtra(EXTRA_TEXT, text)
                 )
-            } catch (error: Exception) {
-                Log.e(TAG, "Could not speak via DriveModeSpeechService", error)
+            }.onFailure {
                 Speech.ensure(context)
                 Speech.speak(text, queue = true)
             }
         }
 
         fun stop(context: Context) {
-            try {
-                context.startService(
-                    Intent(context, DriveModeSpeechService::class.java).setAction(ACTION_STOP)
-                )
-            } catch (error: Exception) {
-                Log.e(TAG, "Could not stop DriveModeSpeechService", error)
+            DriveSafeLog.call("DriveModeSpeech.stop")
+            runCatching {
+                context.startService(Intent(context, DriveModeSpeechService::class.java).setAction(ACTION_STOP))
             }
         }
     }
